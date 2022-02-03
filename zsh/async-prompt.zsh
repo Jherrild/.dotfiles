@@ -96,8 +96,39 @@ alien_prompt_section_error_sensitive_prompt() {
     )
 }
 
+function preexec() {
+    timer=$(($(print -P %D{%s%6.})/1000))
+}
+
+function kill_timer() {
+    unset timer
+}
+
+add-zsh-hook precmd kill_timer
+
+# Relies on preexec()
+alien_prompt_section_timer() {
+    if (( timer )); then
+        now=$(($(print -P %D{%s%6.})/1000))
+        elapsed=$(($now-$timer))
+
+        LAST_CMD_TIME="\ufa1a ${elapsed}ms"
+        unset $timer
+    else
+        LAST_CMD_TIME="\ufa1d"
+    fi
+
+    __section=(
+        content $LAST_CMD_TIME
+        foreground $ALIEN_SECTION_TIME_FG
+        background $ALIEN_SECTION_TIME_BG
+        separator 1
+    )
+}
+
 export ALIEN_SECTIONS_RIGHT=(
     time
+    timer
     vcs_branch:async
     vcs_status:async
     vcs_dirty:async
