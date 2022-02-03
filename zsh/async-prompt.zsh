@@ -79,6 +79,16 @@ alien_prompt_section_java_version() {
     )
 }
 
+alien_prompt_section_go_version() {
+    eval GO_VERSION=$(go version | cut -d " " -f 3 | cut -d "o" -f 2)
+
+    __section=(
+        content "\ufcd1 $GO_VERSION"
+        foreground 'grey'
+        separator 1
+    )
+}
+
 alien_prompt_section_error_sensitive_prompt() {
     __section=(
         content " ${ALIEN_PROMPT_SYM} "
@@ -87,14 +97,15 @@ alien_prompt_section_error_sensitive_prompt() {
 }
 
 export ALIEN_SECTIONS_RIGHT=(
-    # time
+    time
     vcs_branch:async
     vcs_status:async
     vcs_dirty:async
-    java_version:async
+    #java_version:async
+    go_version:async
     # versions:async
     # aws_status:async
-    k8s_status:async
+    #k8s_status:async
 )
 
 export ALIEN_SECTIONS_LEFT=(
