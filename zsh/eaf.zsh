@@ -541,3 +541,16 @@ function demo-init() {
     git add .
     git commit -m 'initial demo project'
 }
+
+function refresh-bluesky() {
+    # Refresh and verify VPN
+    sudo -E infractl vpn refresh -c bluesky
+    sudo -E infractl vpn check -c bluesky
+    
+    # Generate Bluesky config
+    infractl cell kubeconfig-get -c bluesky -R developer -f
+}
+
+function login-ecr() {
+    vault exec olympus -- infractl aws ecr-login
+}

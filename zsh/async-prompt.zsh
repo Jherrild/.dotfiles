@@ -126,17 +126,55 @@ alien_prompt_section_timer() {
     )
 }
 
+alien_prompt_section_kube_config() {
+    color='blue'
+    kube=$(basename $KUBECONFIG | cut -d '-' -f1)
+    config=$(basename $KUBECONFIG | cut -d '-' -f4)
+
+    if [[ $config == "" ]]; then
+        color='red'
+        config="No Kube Config"
+    fi
+    
+    __section=(
+        content "$kube: $config"
+        foreground $color
+        separator 1
+    )
+}
+
+alien_prompt_section_stack_status() {
+    stack=$(kubectl get stacks | fzf -e -f "jherrild")
+    stack_name=$(echo $stack | awk '{print $4}')
+    stack_status=$(echo $stack | awk '{print $6}')
+    
+    if [[ $stack_status == "Ready" ]]; then
+        color='green'
+    else
+        color='red'
+    fi
+
+
+    __section=(
+        content "$stack_name: $stack_status"
+        foreground $color
+        separator 1
+    )
+}
+
 export ALIEN_SECTIONS_RIGHT=(
     time
     timer
     vcs_branch:async
     vcs_status:async
     vcs_dirty:async
-    #java_version:async
+    # java_version:async
     go_version:async
     # versions:async
     # aws_status:async
-    #k8s_status:async
+    # k8s_status:async
+    kube_config
+    stack_status:async
 )
 
 export ALIEN_SECTIONS_LEFT=(
