@@ -137,7 +137,7 @@ alien_prompt_section_kube_config() {
     fi
     
     __section=(
-        content "$kube: $config"
+        content "\ue79b $kube-$config"
         foreground $color
         separator 1
     )
@@ -154,7 +154,6 @@ alien_prompt_section_stack_status() {
         color='red'
     fi
 
-
     __section=(
         content "$stack_name: $stack_status"
         foreground $color
@@ -163,17 +162,17 @@ alien_prompt_section_stack_status() {
 }
 
 export ALIEN_SECTIONS_RIGHT=(
-    time
-    timer
+    time:async
+    timer:async
     vcs_branch:async
     vcs_status:async
     vcs_dirty:async
     # java_version:async
-    go_version:async
+    # go_version:async
     # versions:async
     # aws_status:async
     # k8s_status:async
-    kube_config
+    kube_config:async
     stack_status:async
 )
 
