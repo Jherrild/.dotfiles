@@ -1,6 +1,10 @@
 unsetopt PROMPT_SP
 PS1=''
 
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
 COMMON_FG_1='blue'
 COMMON_FG_2='white'
 COMMON_BG='light-black'
@@ -131,32 +135,36 @@ alien_prompt_section_kube_config() {
     kube=$(basename $KUBECONFIG | cut -d '-' -f1)
     config=$(basename $KUBECONFIG | cut -d '-' -f4)
 
-    if [[ $config == "" ]]; then
+    if [[ $kube == "" ]]; then
         color='red'
-        config="No Kube Config"
+        output="NONE"
+    else
+        output=$kube-$config
     fi
     
     __section=(
-        content "\ue79b $kube-$config"
+        content "\ue79b $output"
         foreground $color
         separator 1
     )
 }
 
 alien_prompt_section_stack_status() {
-    stack=$(kubectl get stacks | fzf -e -f "jherrild")
-    stack_name=$(echo $stack | awk '{print $4}')
-    stack_status=$(echo $stack | awk '{print $6}')
-    
-    if [[ $stack_status == "Ready" ]]; then
-        color='green'
-    else
-        color='red'
-    fi
+    stacks=$(kubectl get stacks | fzf -e -f $(whoami))
+    pattern="Ready"
+    output=""
 
-    __section=(
-        content "$stack_name: $stack_status"
-        foreground $color
+    echo $stacks | while read stack; do
+        stack_string=$(echo $stack | awk '{print $4,$6}' | tr ' ' ':' | tr '\n' ' ')
+        if [[ $stack_string == *$pattern* ]]; then
+            output+="%F{green}\ue257 $stack_string%f";
+        else
+            output+="%F{red}\ue257 $stack_string%f";
+        fi
+    done
+
+    __section+=(
+        content "$output"
         separator 1
     )
 }
@@ -169,7 +177,7 @@ export ALIEN_SECTIONS_RIGHT=(
     vcs_dirty:async
     # java_version:async
     # go_version:async
-    # versions:async
+    #versions:async
     # aws_status:async
     # k8s_status:async
     kube_config:async

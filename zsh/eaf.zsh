@@ -554,3 +554,15 @@ function refresh-bluesky() {
 function login-ecr() {
     vault exec olympus -- infractl aws ecr-login
 }
+
+function stack-id() {
+    if [[ $1 == "" ]]; then
+        kubectl get stacks | fzf | awk '{print $3}'
+    else
+        kubectl get stacks | fzf -e -f $1 | awk '{print $3}'
+    fi
+}
+
+function stacks() {
+    kubectl get stacks | fzf
+}
