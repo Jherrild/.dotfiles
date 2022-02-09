@@ -583,3 +583,9 @@ function pods() {
 function channels() {
     kubectl get channels | fzf
 }
+
+# Displays available kube configs, and allows one to be selected
+function kconfig() {
+    search_string=$(ls "$HOME/.kube/" | tr '-' ' ' | awk '{print $1, $4}' | fzf)
+    export KUBECONFIG="$HOME/.kube/$(ls "$HOME/.kube/" | fzf -f $search_string)"
+}
