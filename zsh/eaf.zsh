@@ -563,6 +563,23 @@ function stack-id() {
     fi
 }
 
+function stack-name() {
+    if [[ $1 == "" ]]; then
+        kubectl get stacks | fzf | awk '{print $4}'
+    else
+        kubectl get stacks | fzf -e -f $1 | awk '{print $4}'
+    fi
+}
+
 function stacks() {
     kubectl get stacks | fzf
+}
+
+function pods() {
+    stack_name=$(stack-name)
+    kubectl get pod -n $stack_name | fzf
+}
+
+function channels() {
+    kubectl get channels | fzf
 }
