@@ -683,24 +683,46 @@ function get-lock() {
     cat $lock_id_file_name | jq '.access | fromjson | .kubeconfig.management.config' -r > $kube_config_file_name
 }
 
-function locks() {
-    lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "bat -p -l json --color always $HOME/.locks/{}")
+function update-lock() {
+    lock_file="$HOME/.locks/$1"
 
+    # Get lock info
+    lock_id=$(cat $lock_file | jq '.id' -r)
+    namespace_id=$(cat $lock_file | jq '.namespace_id' -r)
+
+    sheepctl lock get -n $namespace_id $lock_id -o $lock_file > /dev/null 2>&1
+}
+
+function locks() {
+    # Known Good
+    #lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "bat -p -l json --color always $HOME/.locks/{}")
+    #lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "$(export filename=\"$HOME/.locks/{}\" ; export lock_id=$(cat $filename | jq '.id' -r) ; export namespace_id=$(cat $filename | jq '.namespace_id' -r) ; $(sheepctl lock get -n $namespace_id $lock_id -o $filename) > /dev/null 2>&1) | bat -p -l json --color always $filename")
+    
+    lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "source /Users/jherrild/.dotfiles/zsh/eaf.zsh ; update-lock {} | bat -p -l json --color always $HOME/.locks/{}")
+    lock_file="$HOME/.locks/$lock_file_name"
     if [[ "$lock_file_name" == "" ]]; then
         echo $lock_file_name
-        return 0
-    fi
-
-    lock_file="$HOME/.locks/$lock_file_name"
-    operation=$(echo "update\nextend\ndelete\ncancel" | fzf --reverse)
-    if [[ "$operation" == "" ]]; then
         return 0
     fi
 
     # Get lock info
     lock_id=$(cat $lock_file | jq '.id' -r)
     namespace_id=$(cat $lock_file | jq '.namespace_id' -r)
+    lock_status=$(cat $lock_file | jq '.status' -r)
 
+    # Get valid operation based on state
+    if [[ "$lock_status" == "" ]]; then
+        return 1
+    elif [[ "$lock_status" == "locked" ]]; then
+        operation=$(echo "extend\ndelete\ncancel" | fzf --reverse)
+    elif [[ "$lock_status" == "expired" ]]; then
+        operation=$(echo "delete\ncancel" | fzf --reverse)
+    fi
+
+    if [[ "$operation" == "" ]]; then
+        return 0
+    fi
+    
     # Get kubeconfig file info
     kube_config_file_name=$(ls "$HOME/.kube" | grep $lock_id)
     kube_config_file="$HOME/.kube/$kube_config_file_name"
@@ -708,34 +730,30 @@ function locks() {
 
     # Perform extend/delete operation
     if [[ $operation == "delete" ]]; then
-        vared -p "Confirm Delete?[y/n] " -c REPLY
+        vared -p "Confirm Delete[y/n]? " -c REPLY
 
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            sheepctl lock delete -n $namespace_id $lock_id
+            if [[ "$lock_status" == "locked" ]]; then
+                sheepctl lock delete -n $namespace_id $lock_id
+            fi
+
+            # Update lock again, and delete files if expired
+            update-lock $lock_file_name
+            lock_status=$(cat $lock_file | jq '.status' -r)
+            if [[ $lock_status == "expired" ]]; then
+                echo "Lock is expired, removing files..."
+                
+                echo "Removing lock file: $lock_file"
+                rm $lock_file
+
+                echo "Removing cube config: $kube_config_file"
+                rm $kube_config_file
+            fi
         fi
     elif [[ $operation == "extend" ]]; then
-        vared -p "Extension duration: " -c extension_time
+        vared -p "Extension duration: " --add -c extension_time
         sheepctl lock extend -n $namespace_id $lock_id -t $extension_time
     elif [[ $operation == "cancel" ]]; then
         return 0
-    fi
-
-    # Update lock
-    update_output=$(sheepctl lock get -n $namespace_id $lock_id -o $lock_file) > /dev/null 2>&1 
-    lock_status=$(cat $lock_file | jq '.status' -r)
-    if [[ "$lock_status" == "locked" ]]; then
-        echo "${GREEN}$lock_status\n${NC}"
-    else
-        echo "${RED}$lock_status\n${NC}"
-    fi
-
-    if [[ $lock_status == "expired" ]]; then
-        echo "Lock is expired, removing files..."
-        
-        echo "Removing lock file: $lock_file"
-        rm $lock_file
-
-        echo "Removing cube config: $kube_config_file"
-        rm $kube_config_file
     fi
 }
