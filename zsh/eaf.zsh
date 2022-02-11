@@ -649,13 +649,10 @@ function get-clustergroups() {
 }
 
 function get-lock() {
-    # This attempt was to allow viewing of comments in first screen, and pairing down the content to a list for awk- something about AWK makes this incredibly difficult,
-    #   so I've abandoned this approach for now 
-    # sheepctl namespace list | grep '^| [a-zA-Z0-9]' | fzf --reverse --multi --preview "awk  -F ' ' '{print $2}'"
-
-    # Simpler approach- I just get each section sequentially, and save it in a variable so I don't have to get it again for the next loop
+    # First select namespace
     namespace=$(sheepctl namespace list | grep '^| [a-zA-Z0-9]' | awk -F '|' '{print $2}' | tr -d ' ' | fzf --reverse --multi --preview 'sheepctl pool list -n {}')
-    # awk -F '|' '{print $2}' | tr -d ' '
+    
+    # Select pool from namespace
     pool=$(sheepctl pool list -n $namespace | grep '^| [a-zA-Z0-9]' | fzf | awk -F '|' '{print $2}' | tr -d ' ')
 
     # Newline    
@@ -663,7 +660,6 @@ function get-lock() {
 
     # Get duration
     vared -p "Duration: " -c duration
-
     if [[ "$duration" == "" ]]; then
         return 0
     fi
@@ -677,7 +673,7 @@ function get-lock() {
     lock_id=$(cat $random_id_file_name | jq '.id' -r)
     lock_id_file_name="$HOME/.locks/$lock_id.json"
 
-    # Name file correctly
+    # Rename lock file
     mkdir -p "$home/.locks"
     mv $random_id_file_name $lock_id_file_name
 
