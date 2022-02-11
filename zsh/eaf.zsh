@@ -18,6 +18,7 @@ export MANPATH="/usr/local/man:$MANPATH"
 export TZ_LIST="US/Central,US/Eastern,Europe/Warsaw,Japan"
 
 # Colors
+export GREEN='\033[0;32m'
 export RED='\033[0;31m'
 export NC='\033[0m'
 
@@ -591,9 +592,14 @@ function channels() {
 # Displays available kube configs, and allows one to be selected
 function kconfig() {
     kube_home="$HOME/.kube"
-    config_name=$(ls $kube_home | grep -v "cache" | fzf --reverse --preview "bat -p -l yaml --color always $kube_home/{}")
+
+    if [[ "$1" != "" ]]; then
+        config_name=$(ls $kube_home | grep -v "cache" | fzf -f "$*")
+    else
+        config_name=$(ls $kube_home | grep -v "cache" | fzf --reverse --preview "bat -p -l yaml --color always $kube_home/{}")
+    fi
     
-    if [[ $config_name ]]; then
+    if [[ "$config_name" != "" ]]; then
         export KUBECONFIG="$kube_home/$config_name"
     fi
 }
@@ -658,7 +664,7 @@ function get-lock() {
     # Get duration
     vared -p "Duration: " -c duration
 
-    if [[ -n $duration ]]; then
+    if [[ "$duration" == "" ]]; then
         return 0
     fi
 
@@ -684,13 +690,14 @@ function get-lock() {
 function locks() {
     lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "bat -p -l json --color always $HOME/.locks/{}")
 
-    if [[ -n $lock_file_name ]]; then
+    if [[ "$lock_file_name" == "" ]]; then
+        echo $lock_file_name
         return 0
     fi
 
     lock_file="$HOME/.locks/$lock_file_name"
     operation=$(echo "update\nextend\ndelete\ncancel" | fzf --reverse)
-    if [[ -n $operation ]]; then
+    if [[ "$operation" == "" ]]; then
         return 0
     fi
 
@@ -718,8 +725,13 @@ function locks() {
     fi
 
     # Update lock
-    sheepctl lock get -n $namespace_id $lock_id -o $lock_file
+    update_output=$(sheepctl lock get -n $namespace_id $lock_id -o $lock_file) > /dev/null 2>&1 
     lock_status=$(cat $lock_file | jq '.status' -r)
+    if [[ "$lock_status" == "locked" ]]; then
+        echo "${GREEN}$lock_status\n${NC}"
+    else
+        echo "${RED}$lock_status\n${NC}"
+    fi
 
     if [[ $lock_status == "expired" ]]; then
         echo "Lock is expired, removing files..."
