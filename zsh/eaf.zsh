@@ -651,9 +651,15 @@ function get-clustergroups() {
 function get-lock() {
     # First select namespace
     namespace=$(sheepctl namespace list | grep '^| [a-zA-Z0-9]' | awk -F '|' '{print $2}' | tr -d ' ' | fzf --reverse --multi --preview 'sheepctl pool list -n {}')
-    
+    if [[ "$namespace" == "" ]]; then
+        return 0
+    fi
+
     # Select pool from namespace
     pool=$(sheepctl pool list -n $namespace | grep '^| [a-zA-Z0-9]' | fzf | awk -F '|' '{print $2}' | tr -d ' ')
+    if [[ "$pool" == "" ]]; then
+        return 0
+    fi
 
     # Newline    
     echo
@@ -701,7 +707,6 @@ function locks() {
     lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "source /Users/jherrild/.dotfiles/zsh/eaf.zsh ; update-lock {} | bat -p -l json --color always $HOME/.locks/{}")
     lock_file="$HOME/.locks/$lock_file_name"
     if [[ "$lock_file_name" == "" ]]; then
-        echo $lock_file_name
         return 0
     fi
 
