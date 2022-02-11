@@ -590,8 +590,12 @@ function channels() {
 
 # Displays available kube configs, and allows one to be selected
 function kconfig() {
-    search_string=$(ls "$HOME/.kube/" | tr '-' ' ' | awk '{print $1, $4}' | fzf)
-    export KUBECONFIG="$HOME/.kube/$(ls "$HOME/.kube/" | fzf -f $search_string)"
+    kube_home="$HOME/.kube"
+    config_name=$(ls $kube_home | grep -v "cache" | fzf --reverse --preview "bat -p -l yaml --color always $kube_home/{}")
+    
+    if [[ $config_name ]]; then
+        export KUBECONFIG="$kube_home/$config_name"
+    fi
 }
 
 # Prompts ykman for an mfa token for the active AWS account, and prints it to the screen
@@ -678,11 +682,13 @@ function get-lock() {
 }
 
 function locks() {
-    lock_file="$HOME/.locks/$(ls "$HOME/.locks" | fzf --reverse --preview 'bat -p -l json --color always $HOME/.locks/{}')"
-    if [[ -n $lock_file ]]; then
+    lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "bat -p -l json --color always $HOME/.locks/{}")
+
+    if [[ -n $lock_file_name ]]; then
         return 0
     fi
 
+    lock_file="$HOME/.locks/$lock_file_name"
     operation=$(echo "update\nextend\ndelete\ncancel" | fzf --reverse)
     if [[ -n $operation ]]; then
         return 0
