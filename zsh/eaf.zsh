@@ -751,8 +751,8 @@ function locks() {
             fi
         fi
     elif [[ $operation == "extend" ]]; then
-        vared -p "Extension duration: " --add -c extension_time
-        sheepctl lock extend -n $namespace_id $lock_id -t $extension_time
+        vared -p "Extension duration: " -c extension_time
+        sheepctl lock extend -n $namespace_id $lock_id --add -t $extension_time
     elif [[ $operation == "cancel" ]]; then
         return 0
     fi
