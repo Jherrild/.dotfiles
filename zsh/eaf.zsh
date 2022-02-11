@@ -17,6 +17,10 @@ export MANPATH="/usr/local/man:$MANPATH"
 
 export TZ_LIST="US/Central,US/Eastern,Europe/Warsaw,Japan"
 
+# Colors
+export RED='\033[0;31m'
+export NC='\033[0m'
+
 unset JAVA_HOME
 
 alias c='code .'
@@ -588,4 +592,136 @@ function channels() {
 function kconfig() {
     search_string=$(ls "$HOME/.kube/" | tr '-' ' ' | awk '{print $1, $4}' | fzf)
     export KUBECONFIG="$HOME/.kube/$(ls "$HOME/.kube/" | fzf -f $search_string)"
+}
+
+# Prompts ykman for an mfa token for the active AWS account, and prints it to the screen
+function mfa() {
+    ykman oath accounts code arn:aws:iam::${ACCOUNT_ID}:mfa/${whoami} | awk '{print $2}'
+}
+
+# Refreshes access token and prints to screen
+function token() {
+    export ACCESS_TOKEN=$(curl -s -X POST https://console-stg.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize\?refresh_token\=$CSP_TOKEN | jq -r '.access_token')
+    echo $ACCESS_TOKEN
+}
+
+# Curls and prints the response in pretty print json
+function pcurl() {
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    NC='\033[0m' # No Color
+    
+    response=$(curl "$@")
+    http_status=$(echo $response | fzf -e -f "HTTP/2")
+    pattern="20"
+
+    echo "\n\t"
+    if [[ $http_status == *$pattern* ]]; then
+        echo "${GREEN}$http_status${NC}"
+    else
+        echo "${RED}$http_status${NC}"
+    fi
+    echo "\n"
+
+    echo $response | jq -R 'fromjson? | .' | bat -n -l json --color always
+}
+
+function get-clustergroups() {
+    cluster_uri="https://$(whoami).tmc-dev.cloud.vmware.com/v1alpha/clustergroups"
+    if [[ $1 == "" ]]; then
+        api="curl -X GET $cluster_uri -H \"Authorization: Bearer $ACCESS_TOKEN\" --insecure -L -s"
+    else
+        api="curl -X GET $1 -H \"Authorization: Bearer $ACCESS_TOKEN\" --insecure -L -s"
+    fi
+    
+    json=$(eval $api | jq .) #| bat -n -l json --color always
+    echo $json | jq '.clustergroups[] | .fullName | .name' | tr -d '"' | fzf --reverse --multi --preview "jq '.clustergroups[] | select(.fullName.name==\"{}\")' <(echo '$json') | bat -n -l json --color always"
+}
+
+function get-lock() {
+    # This attempt was to allow viewing of comments in first screen, and pairing down the content to a list for awk- something about AWK makes this incredibly difficult,
+    #   so I've abandoned this approach for now 
+    # sheepctl namespace list | grep '^| [a-zA-Z0-9]' | fzf --reverse --multi --preview "awk  -F ' ' '{print $2}'"
+
+    # Simpler approach- I just get each section sequentially, and save it in a variable so I don't have to get it again for the next loop
+    namespace=$(sheepctl namespace list | grep '^| [a-zA-Z0-9]' | awk -F '|' '{print $2}' | tr -d ' ' | fzf --reverse --multi --preview 'sheepctl pool list -n {}')
+    # awk -F '|' '{print $2}' | tr -d ' '
+    pool=$(sheepctl pool list -n $namespace | grep '^| [a-zA-Z0-9]' | fzf | awk -F '|' '{print $2}' | tr -d ' ')
+
+    # Newline    
+    echo
+
+    # Get duration
+    vared -p "Duration: " -c duration
+
+    if [[ -n $duration ]]; then
+        return 0
+    fi
+
+    # Lock environment
+    random_id=$(uuidgen)
+    random_id_file_name="$HOME/.locks/$random_id.json"
+    sheepctl pool lock -n $namespace --lifetime $duration $pool -o $random_id_file_name
+
+    # Generate correct lock file name
+    lock_id=$(cat $random_id_file_name | jq '.id' -r)
+    lock_id_file_name="$HOME/.locks/$lock_id.json"
+
+    # Name file correctly
+    mkdir -p "$home/.locks"
+    mv $random_id_file_name $lock_id_file_name
+
+    # Export kube config
+    pool_name=$(cat $lock_id_file_name | jq '.pool_name' -r)
+    kube_config_file_name="$HOME/.kube/$pool_name-$lock_id"
+    cat $lock_id_file_name | jq '.access | fromjson | .kubeconfig.management.config' -r > $kube_config_file_name
+}
+
+function locks() {
+    lock_file="$HOME/.locks/$(ls "$HOME/.locks" | fzf --reverse --preview 'bat -p -l json --color always $HOME/.locks/{}')"
+    if [[ -n $lock_file ]]; then
+        return 0
+    fi
+
+    operation=$(echo "update\nextend\ndelete\ncancel" | fzf --reverse)
+    if [[ -n $operation ]]; then
+        return 0
+    fi
+
+    # Get lock info
+    lock_id=$(cat $lock_file | jq '.id' -r)
+    namespace_id=$(cat $lock_file | jq '.namespace_id' -r)
+
+    # Get kubeconfig file info
+    kube_config_file_name=$(ls "$HOME/.kube" | grep $lock_id)
+    kube_config_file="$HOME/.kube/$kube_config_file_name"
+    echo
+
+    # Perform extend/delete operation
+    if [[ $operation == "delete" ]]; then
+        vared -p "Confirm Delete?[y/n] " -c REPLY
+
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            sheepctl lock delete -n $namespace_id $lock_id
+        fi
+    elif [[ $operation == "extend" ]]; then
+        vared -p "Extension duration: " -c extension_time
+        sheepctl lock extend -n $namespace_id $lock_id -t $extension_time
+    elif [[ $operation == "cancel" ]]; then
+        return 0
+    fi
+
+    # Update lock
+    sheepctl lock get -n $namespace_id $lock_id -o $lock_file
+    lock_status=$(cat $lock_file | jq '.status' -r)
+
+    if [[ $lock_status == "expired" ]]; then
+        echo "Lock is expired, removing files..."
+        
+        echo "Removing lock file: $lock_file"
+        rm $lock_file
+
+        echo "Removing cube config: $kube_config_file"
+        rm $kube_config_file
+    fi
 }

@@ -49,6 +49,8 @@ export KUBE_PS1_SYMBOL_DEFAULT='\ufd31'
 export KUBE_PS1_CTX_COLOR=$COMMON_FG_1
 export KUBE_PS1_NS_COLOR=$COMMON_FG_1
 
+export STACKNAME=$(whoami)
+
 alien_prompt_section_aws_status() {
     time_left=$($HOME/.aws/bin/aws-time-left)
     foreground='green'
@@ -150,7 +152,7 @@ alien_prompt_section_kube_config() {
 }
 
 alien_prompt_section_stack_status() {
-    stacks=$(kubectl get stacks | fzf -e -f $(whoami))
+    stacks=$(kubectl get stacks | fzf -e -f $STACKNAME)
     pattern="Ready"
     output=""
 
