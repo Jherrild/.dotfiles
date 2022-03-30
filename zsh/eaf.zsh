@@ -24,6 +24,10 @@ export NC='\033[0m'
 
 unset JAVA_HOME
 
+eval "$(printf 'nl="\n"')"
+alias ykvault="aws-vault --prompt ykman"
+alias vault="aws-vault"
+alias k='kubectl'
 alias c='code .'
 alias v='vi .'
 alias vim='nvim'
@@ -556,8 +560,45 @@ function refresh-bluesky() {
     infractl cell kubeconfig-get -c bluesky -R developer -f
 }
 
+refresh-access() {
+    sudo -E infractl vpn check -c bluesky
+
+    # Refresh and verify VPN
+    echo "Connecting to infractl VPN..."
+    sudo -E infractl vpn refresh -c bluesky
+    #sudo -E infractl vpn disconnect -A
+
+    # If refresh fails, then connect
+    if [ $? -eq 0 ]; then
+        sudo -E infractl vpn connect -c bluesky
+    fi
+
+    #sudo -E infractl vpn connect -A
+    sudo -E infractl vpn check -c bluesky
+    #sudo -E infractl vpn check -A​
+
+    echo "Creating cell kubeconfigs for developer role..."
+    if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
+        ykvault exec olympus -- infractl cell kubeconfig-get -c bluesky -R developer -f
+    else
+        vault exec olympus -- infractl cell kubeconfig-get -c bluesky -R developer -f
+    fi
+    #vault exec olympus -- infractl cell kubeconfig-get -t development -R developer
+
+    echo "Logging into ecr..."
+    if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
+        ykvault exec olympus -- infractl aws ecr-login
+    else
+        vault exec olympus -- infractl aws ecr-login
+    fi
+}
+
 function login-ecr() {
-    vault exec olympus -- infractl aws ecr-login
+    if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
+        ykvault exec olympus -- infractl aws ecr-login
+    else
+        vault exec olympus -- infractl aws ecr-login
+    fi
 }
 
 function stack-id() {
@@ -594,7 +635,7 @@ function kconfig() {
     kube_home="$HOME/.kube"
 
     if [[ "$1" != "" ]]; then
-        config_name=$(ls $kube_home | grep -v "cache" | fzf -f "$*")
+        config_name=$(ls $kube_home | grep -v "cache" | fzf -e -f "$*")
     else
         config_name=$(ls $kube_home | grep -v "cache" | fzf --reverse --preview "bat -p -l yaml --color always $kube_home/{}")
     fi
@@ -612,6 +653,7 @@ function mfa() {
 # Refreshes access token and prints to screen
 function token() {
     export ACCESS_TOKEN=$(curl -s -X POST https://console-stg.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize\?refresh_token\=$CSP_TOKEN | jq -r '.access_token')
+    export Token=$ACCESS_TOKEN
     echo $ACCESS_TOKEN
 }
 
@@ -637,15 +679,32 @@ function pcurl() {
 }
 
 function get-clustergroups() {
-    cluster_uri="https://$(whoami).tmc-dev.cloud.vmware.com/v1alpha/clustergroups"
-    if [[ $1 == "" ]]; then
+    # Get json and downcase top level keys
+    cluster_group_uri="https://$(whoami).tmc-dev.cloud.vmware.com/v1alpha/clustergroups"
+    api="curl -X GET $cluster_group_uri -H \"Authorization: Bearer $ACCESS_TOKEN\" --insecure -L -s"
+    json=$(eval $api | jq '. | with_entries( .key |= ascii_downcase )')
+
+    # Try alternative URI on failure
+    if [[ "$json" == *"Not Found"* ]]; then
+        cluster_group_uri="https://$(whoami).tmc-dev.cloud.vmware.com/v1alpha1/clustergroups"
+        api="curl -X GET $cluster_group_uri -H \"Authorization: Bearer $ACCESS_TOKEN\" --insecure -L -s"
+        json=$(eval $api | jq '. | with_entries( .key |= ascii_downcase )')
+    fi
+    
+    # Parse out cluster groups
+    echo $json | jq '. | .clustergroups[] | .fullName | .name' | tr -d '"' | fzf --reverse --multi --preview "jq '. | .clustergroups[] | select(.fullName.name==\"{}\")' <(echo '$json') | bat -n -l json --color always"
+}
+
+function get-clusters() {
+    cluster_uri="https://$(whoami).tmc-dev.cloud.vmware.com/v1alpha1/clusters"
+    if [[ "$1" == "" ]]; then
         api="curl -X GET $cluster_uri -H \"Authorization: Bearer $ACCESS_TOKEN\" --insecure -L -s"
     else
         api="curl -X GET $1 -H \"Authorization: Bearer $ACCESS_TOKEN\" --insecure -L -s"
     fi
     
     json=$(eval $api | jq .) #| bat -n -l json --color always
-    echo $json | jq '.clustergroups[] | .fullName | .name' | tr -d '"' | fzf --reverse --multi --preview "jq '.clustergroups[] | select(.fullName.name==\"{}\")' <(echo '$json') | bat -n -l json --color always"
+    echo $json | jq '.clusters[] | .fullName | .name' | tr -d '"' | fzf --reverse --multi --preview "jq '.clusters[] | select(.fullName.name==\"{}\")' <(echo '$json') | bat -n -l json --color always"
 }
 
 function get-lock() {
@@ -704,7 +763,7 @@ function locks() {
     #lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "bat -p -l json --color always $HOME/.locks/{}")
     #lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "$(export filename=\"$HOME/.locks/{}\" ; export lock_id=$(cat $filename | jq '.id' -r) ; export namespace_id=$(cat $filename | jq '.namespace_id' -r) ; $(sheepctl lock get -n $namespace_id $lock_id -o $filename) > /dev/null 2>&1) | bat -p -l json --color always $filename")
     
-    lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "source /Users/jherrild/.dotfiles/zsh/eaf.zsh ; update-lock {} | bat -p -l json --color always $HOME/.locks/{}")
+    lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "source /$HOME/.dotfiles/zsh/eaf.zsh ; update-lock {} | bat -p -l json --color always $HOME/.locks/{}")
     lock_file="$HOME/.locks/$lock_file_name"
     if [[ "$lock_file_name" == "" ]]; then
         return 0
@@ -719,7 +778,7 @@ function locks() {
     if [[ "$lock_status" == "" ]]; then
         return 1
     elif [[ "$lock_status" == "locked" ]]; then
-        operation=$(echo "extend\ndelete\ncancel" | fzf --reverse)
+        operation=$(echo "extend\nonboard\ndelete\ncancel" | fzf --reverse)
     elif [[ "$lock_status" == "expired" ]]; then
         operation=$(echo "delete\ncancel" | fzf --reverse)
     fi
@@ -742,10 +801,24 @@ function locks() {
                 sheepctl lock delete -n $namespace_id $lock_id
             fi
 
+            echo "Checking if management cluster has been onboarded..."
+            get-managementcluster-by-lock-id $lock_id
+
+            # If a matching lock is found, delete it
+            if [ $? -eq 0 ]; then
+                delete-managementcluster-by-lock-id $lock_id
+                
+                #remove-tkgm-cluster $(whoami) $cluster_name 
+                if [ $? -eq 1 ]; then
+                    return 1
+                fi
+            fi
+
             # Update lock again, and delete files if expired
             update-lock $lock_file_name
             lock_status=$(cat $lock_file | jq '.status' -r)
             if [[ $lock_status == "expired" ]]; then
+
                 echo "Lock is expired, removing files..."
                 
                 echo "Removing lock file: $lock_file"
@@ -758,7 +831,307 @@ function locks() {
     elif [[ $operation == "extend" ]]; then
         vared -p "Extension duration: " -c extension_time
         sheepctl lock extend -n $namespace_id $lock_id --add -t $extension_time
+    elif [[ $operation == "onboard" ]]; then
+        cluster_group=$(get-clustergroups)
+        pool_name=$(cat $lock_file | jq '.pool_name' -r)
+        if [[ "$pool_name" == "" ]]; then
+            echo "${RED}Pool name could not be extracted from lock file${NC}"
+            return 1
+        fi
+
+        cluster_name="$pool_name-$lock_id"
+        echo "Creating cluster $cluster_name..."
+
+        if [[ "$cluster_group" == "" ]]; then
+            echo "${RED}Cluster group must be specified${NC}"
+            return 1
+        fi
+
+        # Onboard
+        installer_uri=$(add-managementcluster-by-lock-id $cluster_name $cluster_group | jq -e -r '.managementCluster.status.registrationUrl')
+
+        if [ $? -eq 1 ]; then
+            echo "Unable to get installer URI"
+            return 1
+        fi
+
+        kconfig "$kube_config_file_name"
+        kubectl apply -f "$installer_uri"
     elif [[ $operation == "cancel" ]]; then
         return 0
     fi
+}
+
+function add-managementcluster-by-lock-id() {
+    cluster_name=$1
+    cluster_group=$2
+
+    curl --location --request POST "https://$(whoami).tmc-dev.cloud.vmware.com/v1alpha1/managementclusters" \
+        --header "Authorization: Bearer $ACCESS_TOKEN" \
+        --header 'Accept: application/json' \
+        --header 'Content-Type: application/json' \
+        --data-raw "{
+            \"managementCluster\": {
+                \"fullName\": {
+                    \"name\": \"$cluster_name\"
+                },
+                \"spec\": {
+                    \"kubernetesProviderType\": \"VMWARE_TANZU_KUBERNETES_GRID\",
+                    \"defaultClusterGroup\": \"$cluster_group\"
+                }
+            }
+        }"
+}
+
+function delete-managementcluster-by-lock-id() {
+    domain=$(whoami)
+    lock_id=$1
+    cluster_name=$(get-managementcluster-by-lock-id $lock_id)
+
+    if [ $? -eq 1 ]; then
+        echo $cluster_name
+        return 1
+    fi
+
+    output=$(curl --location --request DELETE "https://$domain.tmc-dev.cloud.vmware.com/v1alpha1/managementclusters/$cluster_name" \
+        --header "Authorization: Bearer $ACCESS_TOKEN" \
+        --header 'Accept: application/json')
+
+    if [ $? -eq 1 ]; then
+        echo "${RED}Failed to delete management cluster '$cluster_name':${NC}"
+        echo $output
+        return 1
+    elif [[ "$output" == *"error"* ]]; then
+        echo "${RED}Failed to delete management cluster '$cluster_name':${NC}"
+        echo $output
+        return 1
+    else
+        echo $output | jq '.'
+    fi
+}
+
+function get-managementcluster-by-lock-id() {
+    search_term=$1
+    uri="https://$(whoami).tmc-dev.cloud.vmware.com/v1alpha1/managementclusters"
+    api="curl -X GET $uri -H \"Authorization: Bearer $ACCESS_TOKEN\" --insecure -L -s"
+    json=$(eval $api | jq '. | with_entries( .key |= ascii_downcase )')
+
+    # Parse out cluster groups
+    output=$(echo $json | jq '. | .managementclusters[] | .fullName | .name' | tr -d '"' | fzf -e -f $1)
+
+    if [[ "$output" == "" ]]; then
+        echo "${RED}No matching management clusters found${NC}"
+        echo "$output"
+        return 1
+    elif [[ "$output" == *"$nl"* ]]; then
+        echo "${RED}More than one matching management cluster found:\n${NC}"
+        echo "$output"
+        return 1
+    else
+        echo $output
+    fi
+}
+
+function pods() {
+    if [[ "$1" != "" ]]; then
+        namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
+    else
+        namespace=$(k get namespace | fzf --preview "$(echo "{}" | awk '{print $1}')" | awk '{print $1}')
+    fi
+
+    if [[ "$namespace" == "" ]]; then
+        return 0
+    fi
+
+    if [[ "$2" != "" ]]; then
+        pods=$(k get pods -n $namespace | fzf -e -f "$2" | awk '{print $1}' | tr '\n' ' ')
+    else
+        pods=$(k get pods -n $namespace | fzf --multi | awk '{print $1}' | tr '\n' ' ')
+    fi
+
+    if [[ "$pods" == "" ]]; then
+        return 0
+    fi
+
+    # Delete pod
+    echo $pods
+}
+
+function restart-pod() {
+    if [[ "$1" != "" ]]; then
+        namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
+    else
+        namespace=$(k get namespace | fzf | awk '{print $1}')
+    fi
+
+    if [[ "$namespace" == "" ]]; then
+        return 0
+    fi
+
+    if [[ "$2" != "" ]]; then
+        pods=$(k get pods -n $namespace | fzf -e -f "$2" | awk '{print $1}' | tr '\n' ' ')
+    else
+        pods=$(k get pods -n $namespace | fzf --multi | awk '{print $1}' | tr '\n' ' ')
+    fi
+
+    if [[ "$pods" == "" ]]; then
+        return 0
+    fi
+
+    # Delete pod
+    k delete pods -n $namespace $(echo $pods)
+}
+
+function listen-pod() {
+    if [[ "$1" != "" ]]; then
+        namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
+    else
+        namespace=$(k get namespace | fzf | awk '{print $1}')
+    fi
+
+    if [[ "$namespace" == "" ]]; then
+        return 0
+    fi
+
+    if [[ "$2" != "" ]]; then
+        pod=$(k get pods -n $namespace | fzf -e -f "$2" | awk '{print $1}')
+    else
+        pod=$(k get pods -n $namespace | fzf | awk '{print $1}')
+    fi
+
+    if [[ "$pod" == "" ]]; then
+        return 0
+    fi
+    
+    k logs -n $namespace $pod -f --since "10m"
+}
+
+function describe-pod() {
+    if [[ "$1" != "" ]]; then
+        namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
+    else
+        namespace=$(k get namespace | fzf | awk '{print $1}')
+    fi
+
+    if [[ "$namespace" == "" ]]; then
+        return 0
+    fi
+
+    if [[ "$2" != "" ]]; then
+        pod=$(k get pods -n $namespace | fzf -e -f "$2" | awk '{print $1}')
+    else
+        pod=$(k get pods -n $namespace | fzf | awk '{print $1}')
+    fi
+
+    if [[ "$pod" == "" ]]; then
+        return 0
+    fi
+    
+    k describe -n $namespace pod $pod
+}
+
+function watch-pod() {
+    if [[ "$1" != "" ]]; then
+        namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
+    else
+        namespace=$(k get namespace | fzf | awk '{print $1}')
+    fi
+
+    if [[ "$namespace" == "" ]]; then
+        echo "${RED}Not found${NC}" 
+        return 0
+    fi
+
+    echo $namespace
+
+    #k get pod -n $namespace -o yaml | fzf -e -f imageID | awk '{print $2}' | tr '/' ' ' | awk '{print $4}'
+    #while [[ $(k get pod -n vmware-system-tmc | fzf -e -f retriever | awk '{print $2}' | k get pod -n vmware-system-tmc -o yaml | fzf -e -f imageID | fzf -e -f resource-retriever) == *"d5f8409f48ff1ce7d7d55c3460a4e29562e2e514"*  ]]; do; sleep 5; done; afplay /System/Library/Sounds/Blow.aiff; echo "\n\n\nNew version '' detected\n\n\n"
+}
+
+function stack-config() {
+    # Check that access token is stored in variable 
+    if [[ "$GITLAB_ACCESS_TOKEN" == "" ]]; then
+        echo "Required environment variable GITLAB_ACCESS_TOKEN is not set- please visit 'https://gitlab.eng.vmware.com/-/profile/personal_access_tokens?name=Repository+Access+token&scopes=read_repository' to generate a gitlab repository read access token, set the afformentioned variable in your environment, and rerun."
+        return 1
+    fi
+    
+    # Check that stack config variable is set
+    if [[ "$STACK_CONFIG" == "" ]]; then
+        echo "Required environment variable STACK_CONFIG is not set- please export the location of your stack config yaml file and rerun."
+        return 1
+    fi
+
+    # Check file exists
+    touch $STACK_CONFIG > /dev/null 2>&1
+    if [[ $? == 1 ]]; then
+        echo "Environment file '$STACK_CONFIG' is missing or unreadable"
+        return 1
+    fi
+
+    # Set channel_tag variable, exit if it is missing from file
+    local channel_tag=$(cat $STACK_CONFIG | yq '.spec.channel' 2>/dev/null)
+    if [[ "$channel_tag" == "null" ]]; then
+        echo "'channel' tag is missing from file '$STACK_CONFIG'"
+        return 1
+    fi
+
+    # Pick operation, exit if selection is canceled
+    local operation=$(echo "add\ndelete\nupdate\ncancel" | fzf --reverse)
+    if [[ "$operation" == "" ]]; then
+        return 0
+    fi
+
+    # Perform extend/delete operation
+    if [[ $operation == "add" ]]; then
+        templateYamlFile="$HOME/TEMP/$channel_tag.yaml"
+        curl -X GET "https://gitlab.eng.vmware.com/api/v4/projects/23995/repository/files/channels%2Fdev%2F$channel_tag.yaml/raw" --header "PRIVATE-TOKEN: $GITLAB_ACCESS_TOKEN" | yq '.' > $templateYamlFile
+        key_path=$(traverse-yaml-file $templateYamlFile)
+    elif [[ $operation == "delete" ]]; then
+        # TODO: Implement
+    elif [[ $operation == "update" ]]; then
+        key_path=$(traverse-yaml-file $STACK_CONFIG)
+        
+    elif [[ $operation == "cancel" ]]; then
+        return 0
+    fi
+}
+
+function is-leaf() {
+    $(cat $1 | yq "$2 | keys" > /dev/null 2>&1)
+}
+
+function traverse-yaml-file() {
+    if [[ "$1" == "" ]]; then
+        echo "${RED}No input file specified${NC}"
+        return 1
+    else
+        yaml=$1
+    fi
+
+    keys=$(cat $yaml | yq ". | keys")
+    local key_path="."
+
+    while [[ "$value" == "" ]]; do
+        # first loop
+        if [[ "$key_path" == "." ]]; then
+            local key_path="."$(cat $yaml | yq "$key_path | keys" | awk '{print $2}' | fzf --reverse --preview "cat $yaml | yq -C '$key_path{}'")
+        else
+            local key_path="$key_path."$(cat $yaml | yq "$key_path | keys" | awk '{print $2}' | fzf --reverse --preview "cat $yaml | yq -C '$key_path.{}'")
+        fi
+
+        # Check to see if user broke loop or selected nothing
+        if [[ $? -eq 1 ]]; then
+            return 1
+        elif [[ "$key_path" == *"." ]]; then
+            return 0
+        fi
+
+        # Later loops
+        if $(is-leaf $yaml $key_path) ; then
+        else
+            local value=$(cat $yaml | yq "$key_path")
+        fi
+    done
+    
+    echo $key_path
 }
