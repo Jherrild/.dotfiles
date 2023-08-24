@@ -67,6 +67,24 @@ alien_prompt_section_aws_status() {
     )
 }
 
+alien_prompt_section_aws_role_time_left() {
+    if [[ $AWS_SESSION_EXPIRATION ]]; then
+        time_left=$(( $AWS_SESSION_EXPIRATION - $(gdate +%s) ))
+        foreground='green'
+
+        if (($time_left <= 0)); then
+            time_left='0'
+            foreground='red'
+        fi
+
+        __section=(
+            content "\uf52c ${time_left}s"
+            foreground $foreground
+            separator 1
+        )
+    fi
+}
+
 alien_prompt_section_k8s_status() {
     __section=(
         content "$(kube_ps1)"
@@ -172,6 +190,7 @@ alien_prompt_section_stack_status() {
 }
 
 export ALIEN_SECTIONS_RIGHT=(
+    aws_role_time_left
     time:async
     timer:async
     vcs_branch:async

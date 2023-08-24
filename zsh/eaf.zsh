@@ -1,3 +1,19 @@
+#   components:
+#   - name: managed-k8s-provider
+#     revision: 09e53b5021ded77b372db9a1b94e893fdfa91519
+#     sourceImage: 498533941640.dkr.ecr.us-west-2.amazonaws.com/managed-k8s-provider/config-dev
+
+# Tanzu
+export EKSCLUSTER_TEST_CONFIG=/Users/jherrild/repos/cli-plugins/artifacts/darwin/amd64/cli/pekscluster/dev/test/manageconfig.yaml
+alias ekscluster="/Users/jherrild/repos/cli-plugins/artifacts/darwin/amd64/cli/ekscluster/dev/tanzu-ekscluster-darwin_amd64"
+alias pekscluster="/Users/jherrild/repos/cli-plugins/artifacts/darwin/amd64/cli/pekscluster/dev/tanzu-pekscluster-darwin_amd64"
+
+# Terraform ENV
+export VMW_CLOUD_ENDPOINT=console-stg.cloud.vmware.com
+export TMC_ENDPOINT=jherrild.stacks.bluesky.tmc-dev.cloud.vmware.com
+export TMC_HOST=$TMC_ENDPOINT
+export VMW_CLOUD_API_TOKEN=$CSP_TOKEN
+
 export EDITOR='code --wait'
 export EDITOR_NOWAIT='code'
 export BAT_STYLE='full'
@@ -6,15 +22,41 @@ export GPG_TTY=$(tty)
 export FZF_CTRL_T_OPTS="--bind='enter:execute(code {})+abort' --preview 'bat --color \"always\" {}'"
 export COPYFILE_DISABLE=1 # so that tar works properly on mac
 
-export GOPATH="$HOME/go"
-export PATH="$GOPATH/bin:$PATH"
+# Go variables
+#export GOPATH="/usr/local/Cellar/go@1.16/1.16.15"
+export GOSUMDB=off
+export GOPROXY=direct
+export GOPATH="/usr/local/Cellar/go/1.20.6"
+export GOROOT="$(brew --prefix go)/libexec"
+export PATH="$GOROOT:$GOPATH/bin:$PATH"
+#export GOPRIVATE=http://gitlab.eng.vmware.com
+export GOPRIVATE="*.vmware.com,github.com/vmware-tanzu-private*"
+
 export PATH="$HOME/.dotfiles/aws/bin:$PATH"
 export PATH="$HOME/.dotfiles/contrib/aws/bin:$PATH"
 export PATH="/usr/local/opt/openssl/bin:$PATH"
 export PATH="/usr/local/opt/curl/bin:$PATH"
-export PATH="$PATH:/usr/local/sbin"
+export PATH="/usr/local/sbin:$PATH"
 export MANPATH="/usr/local/man:$MANPATH"
 
+# PSQL
+export PSQL_VERSION=$(ls /usr/local/Cellar/libpq)
+export PATH="/usr/local/Cellar/libpq/$PSQL_VERSION/bin:$PATH"
+# export PATH="/usr/local/Cellar/libpq/15.1/bin:$PATH"
+
+# AWS
+export AWS_DEFAULT_REGION=us-west-2
+export AWS_ENV_OLYMPUS="olympus"
+export AWS_ENV_EKS_TEST="eks-test"
+export AWS_ENV_TEST_01="tmc-tests-01"
+export AWS_ENV_TEST_04="tmc-tests-04"
+export AWS_ENV_TEST_05="tmc-tests-05"
+export AWS_ENV=$AWS_ENV_EKS_TEST
+
+export test_05_id="AKIATQB2BFXK4WCFD3P4"
+export test_05_secret="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"
+
+# TIMEZONES
 export TZ_LIST="US/Central,US/Eastern,Europe/Warsaw,Japan"
 
 # Colors
@@ -25,9 +67,12 @@ export NC='\033[0m'
 unset JAVA_HOME
 
 eval "$(printf 'nl="\n"')"
-alias ykvault="aws-vault --prompt ykman"
+alias eaf="code $HOME/.dotfiles/zsh/eaf.zsh"
+alias zshrc="code $HOME/.zshrc"
+alias goland="/usr/local/bin/goland"
 alias vault="aws-vault"
 alias k='kubectl'
+alias kubectl='kubectl-exec'
 alias c='code .'
 alias v='vi .'
 alias vim='nvim'
@@ -35,7 +80,6 @@ alias vi='nvim'
 alias notes="$EDITOR_NOWAIT $HOME/.notes"
 alias obsidian='open /Applications/Obsidian.app'
 alias dotfiles="$EDITOR_NOWAIT $HOME/.dotfiles"
-alias zshrc="$EDITOR_NOWAIT $HOME/.dotfiles/zsh"
 alias hyper-conf="$EDITOR_NOWAIT $HOME/.dotfiles/hyper/.hyper.js"
 alias mvn='./mvnw'
 alias mvnw='./mvnw'
@@ -85,6 +129,72 @@ alias vpn-disable='launchctl unload /Library/LaunchAgents/com.paloaltonetworks.g
 
 alias gradle-build-scan-enable='[ -f ~/.gradle/enterprise/keys.properties.bak ] && mv ~/.gradle/enterprise/keys.properties.bak ~/.gradle/enterprise/keys.properties'
 alias gradle-build-scan-disable='[ -f ~/.gradle/enterprise/keys.properties ] && mv ~/.gradle/enterprise/keys.properties ~/.gradle/enterprise/keys.properties.bak'
+
+function export-test-creds() {
+    export ASSUME_ROLE_ARN="arn:aws:iam::919197287370:role/EKSCrossAccount"
+    export AWS_ACCESS_KEY_ID=$test_05_id
+    export AWS_SECRET_ACCESS_KEY=$test_05_secret
+}
+
+function ykvault() {
+    aws-vault --prompt ykman $@
+}
+
+function get-aws-env() {
+    printenv | grep "AWS_ENV_" | tr '=' ' ' | awk '{print $2}' | fzf
+}
+
+function switch-aws() {
+    env=$(get-aws-env)
+    export AWS_ENV=$env
+}
+
+function aws-exec() {
+    if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
+        ykvault exec $AWS_ENV -- aws $@
+    else
+        vault exec $AWS_ENV -- aws $@
+    fi
+}
+
+function kubectl-exec() {
+    if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
+        ykvault exec $AWS_ENV -- kubectl $@
+    else
+        vault exec $AWS_ENV -- kubectl $@
+    fi
+}
+
+function aws-whoami() {
+    aws-exec sts get-caller-identity
+}
+
+function aws-assume-role() {
+    switch-aws
+    role_arn=$(aws-exec iam list-roles | grep Arn | tr -d '"' | tr -d ',' | awk '{print $2}' | fzf)
+    vared -p "Session name:" -c session_name
+    # jsonOutput=$(aws-exec sts assume-role --role-arn $role_arn --duration-seconds 900 --role-session-name $session_name)
+    jsonOutput=$(aws sts assume-role --role-arn $role_arn --duration-seconds 900 --role-session-name $session_name)
+    
+    # Save old variables
+    export AWS_ACCESS_KEY_ID_BAK=$AWS_ACCESS_KEY_ID
+    export AWS_SECRET_ACCESS_KEY_BAK=$AWS_SECRET_ACCESS_KEY
+    export AWS_SESSION_TOKEN_BAK=$AWS_SESSION_TOKEN
+
+    # Export new variables
+    export AWS_ACCESS_KEY_ID=$(echo $jsonOutput | jq .Credentials.AccessKeyId | tr -d '"')
+    export AWS_SECRET_ACCESS_KEY=$(echo $jsonOutput | jq .Credentials.SecretAccessKey | tr -d '"')
+    export AWS_SESSION_TOKEN=$(echo $jsonOutput | jq .Credentials.SessionToken | tr -d '"')
+    expiration=$(echo $jsonOutput | jq .Credentials.Expiration | tr -d '"')
+    export AWS_SESSION_EXPIRATION=$(gdate --date="$expiration" +%s)
+}
+
+function aws-revert-role() {
+    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID_BAK
+    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY_BAK
+    export AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN_BAK
+    unset AWS_SESSION_EXPIRATION
+}
 
 function docker-rmi() {
     if [ $# -eq 1 ]; then
@@ -164,6 +274,16 @@ function kchaos() {
     else
         echo "Usage: $0 <pod name pattern to protect> <number of pods to delete>"
     fi
+}
+
+function git-add() {
+    git add $(echo $(gst | awk '{print $2}' | tr '\n' ' '))
+}
+
+function add-and-commit() {
+    git-add
+    vared -p "Commit message: " -c message
+    git commit -m $message
 }
 
 function git-sync() {
@@ -560,65 +680,95 @@ function refresh-bluesky() {
     infractl cell kubeconfig-get -c bluesky -R developer -f
 }
 
-refresh-access() {
-    sudo -E infractl vpn check -c bluesky
+function vpn-init() {
+    ykvault exec olympus -- infractl vpn init -A
+}
 
-    # Refresh and verify VPN
+function refresh-access() {
+    cell="bluesky"
+    level="poweruser"
+    if [[ $1 != "" ]]; then
+        cell=$1
+    fi
+
+    if [[ $cell == "bluesky" ]]; then
+        level="developer"
+    fi
+
     echo "Connecting to infractl VPN..."
-    sudo -E infractl vpn refresh -c bluesky
-    #sudo -E infractl vpn disconnect -A
+    if [[ $1 == "-a" ]]; then
+        sudo -E infractl vpn disconnect -A
+        sudo -E infractl vpn connect -A
+        sudo -E infractl vpn check -A
 
-    # If refresh fails, then connect
-    if [ $? -eq 0 ]; then
-        sudo -E infractl vpn connect -c bluesky
-    fi
-
-    #sudo -E infractl vpn connect -A
-    sudo -E infractl vpn check -c bluesky
-    #sudo -E infractl vpn check -A​
-
-    echo "Creating cell kubeconfigs for developer role..."
-    if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
-        ykvault exec olympus -- infractl cell kubeconfig-get -c bluesky -R developer -f
+        echo "Creating cell kubeconfigs for $level role..."
+        if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
+            ykvault exec olympus -- infractl cell kubeconfig-get -t production -R $level -f
+        else
+            vault exec olympus -- infractl cell kubeconfig-get -t production -R $level -f
+        fi
     else
-        vault exec olympus -- infractl cell kubeconfig-get -c bluesky -R developer -f
-    fi
-    #vault exec olympus -- infractl cell kubeconfig-get -t development -R developer
+        sudo -E infractl vpn disconnect -c $cell
+        sudo -E infractl vpn connect -c $cell
+        sudo -E infractl vpn check -c $cell
 
-    echo "Logging into ecr..."
+        echo "Creating cell kubeconfigs for $level role..."
+        if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
+            ykvault exec olympus -- infractl cell kubeconfig-get -c $cell -R $level -f
+        else
+            vault exec olympus -- infractl cell kubeconfig-get -c $cell -R $level -f
+        fi
+    fi
+}
+
+function login-cell() {
+    cell=$(infractl cell list | fzf)
+    level=$(echo "developer\npoweruser\nreadonly" | fzf)
+
+    echo "Creating cell kubeconfigs for $level role..."
     if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
-        ykvault exec olympus -- infractl aws ecr-login
+        ykvault exec olympus -- infractl cell kubeconfig-get -c $cell -R $level -f
     else
-        vault exec olympus -- infractl aws ecr-login
+        vault exec olympus -- infractl cell kubeconfig-get -c $cell -R $level -f
     fi
 }
 
 function login-ecr() {
     if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
         ykvault exec olympus -- infractl aws ecr-login
+        ykvault exec tmc-tests-05 --region us-east-1 -- aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        ykvault exec tmc-tests-05 --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 240639880661.dkr.ecr.us-east-1.amazonaws.com
+        ykvault exec olympus --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 702834246803.dkr.ecr.us-west-2.amazonaws.com
     else
         vault exec olympus -- infractl aws ecr-login
+        vault exec tmc-tests-05 --region us-east-1 -- aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        vault exec tmc-tests-05 --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 240639880661.dkr.ecr.us-east-1.amazonaws.com
+        vault exec olympus --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 702834246803.dkr.ecr.us-west-2.amazonaws.com
     fi
 }
 
-function stack-id() {
+function aws-portal() {
     if [[ $1 == "" ]]; then
-        kubectl get stacks | fzf | awk '{print $3}'
+        ykvault login $(get-aws-env) --region us-west-2
     else
-        kubectl get stacks | fzf -e -f $1 | awk '{print $3}'
-    fi
-}
-
-function stack-name() {
-    if [[ $1 == "" ]]; then
-        kubectl get stacks | fzf | awk '{print $4}'
-    else
-        kubectl get stacks | fzf -e -f $1 | awk '{print $4}'
+        ykvault login $1 --region us-west-2
     fi
 }
 
 function stacks() {
-    kubectl get stacks | fzf
+    if [[ $1 == "" ]]; then
+        kubectl get stacks | fzf
+    else
+        kubectl get stacks | fzf -e -f $1
+    fi
+}
+
+function stack-id() {
+    stacks $1 | awk '{print $3}'
+}
+
+function stack-name() {
+    stacks $1 | awk '{print $4}'
 }
 
 function pods() {
@@ -650,9 +800,15 @@ function mfa() {
     ykman oath accounts code arn:aws:iam::${ACCOUNT_ID}:mfa/${whoami} | awk '{print $2}'
 }
 
+function ykrotate() {
+    account=$(ykman oath accounts list | fzf)
+    ykman oath accounts delete $account
+    ykman oath accounts add $account
+}
+
 # Refreshes access token and prints to screen
 function token() {
-    export ACCESS_TOKEN=$(curl -s -X POST https://console-stg.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize\?refresh_token\=$CSP_TOKEN | jq -r '.access_token')
+    export ACCESS_TOKEN=$(curl -X POST -H "Content-Type: application/x-www-form-urlencoded" https://console-stg.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize -d refresh_token=$CSP_TOKEN | jq -r '.access_token')
     export Token=$ACCESS_TOKEN
     echo $ACCESS_TOKEN
 }
@@ -690,7 +846,12 @@ function get-clustergroups() {
         api="curl -X GET $cluster_group_uri -H \"Authorization: Bearer $ACCESS_TOKEN\" --insecure -L -s"
         json=$(eval $api | jq '. | with_entries( .key |= ascii_downcase )')
     fi
-    
+
+    if [[ "$(echo $json | tr -d ' ')" == "" ]]; then
+        echo "Unable to list cluster groups"
+        return 1
+    fi
+
     # Parse out cluster groups
     echo $json | jq '. | .clustergroups[] | .fullName | .name' | tr -d '"' | fzf --reverse --multi --preview "jq '. | .clustergroups[] | select(.fullName.name==\"{}\")' <(echo '$json') | bat -n -l json --color always"
 }
@@ -759,10 +920,6 @@ function update-lock() {
 }
 
 function locks() {
-    # Known Good
-    #lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "bat -p -l json --color always $HOME/.locks/{}")
-    #lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "$(export filename=\"$HOME/.locks/{}\" ; export lock_id=$(cat $filename | jq '.id' -r) ; export namespace_id=$(cat $filename | jq '.namespace_id' -r) ; $(sheepctl lock get -n $namespace_id $lock_id -o $filename) > /dev/null 2>&1) | bat -p -l json --color always $filename")
-    
     lock_file_name=$(ls "$HOME/.locks" | fzf --reverse --preview "source /$HOME/.dotfiles/zsh/eaf.zsh ; update-lock {} | bat -p -l json --color always $HOME/.locks/{}")
     lock_file="$HOME/.locks/$lock_file_name"
     if [[ "$lock_file_name" == "" ]]; then
@@ -849,7 +1006,6 @@ function locks() {
 
         # Onboard
         installer_uri=$(add-managementcluster-by-lock-id $cluster_name $cluster_group | jq -e -r '.managementCluster.status.registrationUrl')
-
         if [ $? -eq 1 ]; then
             echo "Unable to get installer URI"
             return 1
@@ -932,7 +1088,7 @@ function get-managementcluster-by-lock-id() {
     fi
 }
 
-function pods() {
+function pods_depricated() {
     if [[ "$1" != "" ]]; then
         namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
     else
@@ -1003,8 +1159,77 @@ function listen-pod() {
         return 0
     fi
     
-    k logs -n $namespace $pod -f --since "10m"
+    k logs -n $namespace $pod -f --since "24h"
 }
+
+function scan-pod() {
+    if [[ "$1" != "" ]]; then
+        namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
+    else
+        namespace=$(k get namespace | fzf | awk '{print $1}')
+    fi
+
+    if [[ "$namespace" == "" ]]; then
+        return 0
+    fi
+
+    echo "Scan regex: "
+    read reg
+    
+    stern -n $namespace $reg
+}
+
+function k8s() {
+    if [[ "$1" != "" ]]; then
+        namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
+    else
+        namespace=$(k get namespace | fzf | awk '{print $1}')
+    fi
+
+    if [[ "$namespace" == "" ]]; then
+        return 0
+    fi
+    
+    stern -n $namespace k8s
+}
+
+function create() {
+    if [[ "$1" != "" ]]; then
+        namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
+    else
+        namespace=$(k get namespace | fzf | awk '{print $1}')
+    fi
+
+    if [[ "$namespace" == "" ]]; then
+        return 0
+    fi
+    
+    stern -n $namespace create
+}
+
+function attach() {
+    if [[ "$1" != "" ]]; then
+        namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
+    else
+        namespace=$(k get namespace | fzf | awk '{print $1}')
+    fi
+
+    if [[ "$namespace" == "" ]]; then
+        return 0
+    fi
+    
+    stern -n $namespace attach
+}
+
+function plisten-pod() {
+    if [[ "$1" != "" ]]; then
+        listen-pod | jq --arg SEARCH $1 -R '. as $line | try (fromjson) catch $line | select( . | contains($SEARCH))'
+    else
+        listen-pod | jq -R '. as $line | try (fromjson) catch $line'
+    fi
+
+}
+
 
 function describe-pod() {
     if [[ "$1" != "" ]]; then
@@ -1030,22 +1255,9 @@ function describe-pod() {
     k describe -n $namespace pod $pod
 }
 
+# Listens to pod logs, and makes a sound when the log stream ends- intended to indicate when a pod has been restarted/updated
 function watch-pod() {
-    if [[ "$1" != "" ]]; then
-        namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
-    else
-        namespace=$(k get namespace | fzf | awk '{print $1}')
-    fi
-
-    if [[ "$namespace" == "" ]]; then
-        echo "${RED}Not found${NC}" 
-        return 0
-    fi
-
-    echo $namespace
-
-    #k get pod -n $namespace -o yaml | fzf -e -f imageID | awk '{print $2}' | tr '/' ' ' | awk '{print $4}'
-    #while [[ $(k get pod -n vmware-system-tmc | fzf -e -f retriever | awk '{print $2}' | k get pod -n vmware-system-tmc -o yaml | fzf -e -f imageID | fzf -e -f resource-retriever) == *"d5f8409f48ff1ce7d7d55c3460a4e29562e2e514"*  ]]; do; sleep 5; done; afplay /System/Library/Sounds/Blow.aiff; echo "\n\n\nNew version '' detected\n\n\n"
+    listen-pod; afplay /System/Library/Sounds/Blow.aiff
 }
 
 function stack-config() {
@@ -1134,4 +1346,134 @@ function traverse-yaml-file() {
     done
     
     echo $key_path
+}
+
+function wait-version() {
+    repo_name=$(basename -s .git `git config --get remote.origin.url`)
+
+    if [[ $repo_name == "workload-cluster-manager" ]] {
+        cmd='docker pull 498533941640.dkr.ecr.us-west-2.amazonaws.com/workload-cluster-manager/config-dev:$(git rev-parse head)'
+    }
+
+    while [[ ! $(docker pull 498533941640.dkr.ecr.us-west-2.amazonaws.com/workload-cluster-manager/config-dev:$(git rev-parse head)) ]] {; sleep 10 }; afplay /System/Library/Sounds/Blow.aiff; git rev-parse head
+}
+
+function ding() {
+    afplay /System/Library/Sounds/Blow.aiff
+}
+
+function connect_psql() {
+    namespace=$(stacks | awk '{print $5}')
+    creds=$(kubectl get secrets -n $namespace | grep postgres-creds | fzf |awk '{print $1}')
+    url=$(kubedecode $creds $namespace | grep PGURL | awk '{print $2}' | sed 's/?application_name=root_connection//g')
+
+    psql $url -c "\dt;"
+    psql $url -P expanded=on
+}
+
+function connect_psql_dev() {
+    namespace=$(stacks | awk '{print $4}')
+    creds=$(kubectl get secrets -n $namespace | grep postgres-creds | fzf |awk '{print $1}')
+    url=$(kubedecode $creds $namespace | grep PGURL | awk '{print $2}' | sed 's/?application_name=root_connection//g')
+
+    psql $url -c "\dt;"
+    psql $url -P expanded=on
+}
+
+function credentials() {
+    namespace=$(stacks | awk '{print $4}')
+    creds=$(kubectl get secrets -n $namespace | grep postgres-creds | awk '{print $1}' | grep "account-manager")
+    url=$(kubedecode $creds $namespace | grep PGURL | awk '{print $2}' | sed 's/?application_name=root_connection//g')
+
+    psql $url -c "select name, phase from credentials;"
+}
+
+function lambdas() {
+    namespace=$(stacks | awk '{print $4}')
+    creds=$(kubectl get secrets -n $namespace | grep postgres-creds | awk '{print $1}' | grep "managed-k8s")
+    url=$(kubedecode $creds $namespace | grep PGURL | awk '{print $2}' | sed 's/?application_name=root_connection//g')
+
+    psql $url -c "SELECT full_name->'name' AS Name, full_name->'credential_name' AS Credential, status->'phase' as Phase, (case when status->>'phase' != 'READY' then status->'conditions'->'Ready'->>'reason' end) AS Error_reason, (case when status->>'phase' != 'READY' then status->'conditions'->'Ready'->>'message' end) AS Error_message FROM management_plane;"
+}
+
+function eks_clusters() {
+    namespace=$(stacks | awk '{print $4}')
+    creds=$(kubectl get secrets -n $namespace | grep postgres-creds | awk '{print $1}' | grep "managed-k8s")
+    url=$(kubedecode $creds $namespace | grep PGURL | awk '{print $2}' | sed 's/?application_name=root_connection//g')
+
+    psql $url -c "SELECT full_name->'name' AS Name, full_name->'credential_name' AS Credential, status->'phase' as Phase, (case when status->>'phase' != 'READY' then status->'conditions'->'Ready'->>'reason' end) AS Error_reason, (case when status->>'phase' != 'READY' then status->'conditions'->'Ready'->>'message' end) AS Error_message FROM eks_cluster;"
+}
+
+function tables() {
+    namespace=$(stacks | awk '{print $4}')
+    creds=$(kubectl get secrets -n $namespace | grep postgres-creds | awk '{print $1}' | grep "managed-k8s")
+    url=$(kubedecode $creds $namespace | grep PGURL | awk '{print $2}' | sed 's/?application_name=root_connection//g')
+
+    psql $url -c "\dt;"
+}
+
+function get-running-job() {
+    k get job -o yaml -n tmc-jherrild $(k get jobs -n tmc-jherrild --no-headers=false | aws '{print $1}')
+}
+
+function cluster-kconfig() {
+    region="us-west-2"
+    if [ $# -eq 1 ]; then
+        region="$1"
+    fi
+
+    cluster_name=$(aws-exec eks list-clusters --region $region | jq '.clusters | .[]' -r | fzf)
+    aws-exec eks update-kubeconfig --region $region --name $cluster_name --kubeconfig /Users/jherrild/.kube/$cluster_name
+}
+
+function delete-job() {
+    if [[ "$1" != "" ]]; then
+        namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
+    else
+        namespace=$(k get namespace | fzf | awk '{print $1}')
+    fi
+
+    if [[ "$namespace" == "" ]]; then
+        return 0
+    fi
+
+    jobs=$(k get jobs.batch -n $namespace | fzf --multi | awk '{print $1}' | tr '\n' ' ')
+
+    if [[ "$jobs" == "" ]]; then
+        return 0
+    fi
+
+    # Delete pod
+    k delete jobs.batch -n $namespace $(echo $jobs)
+}
+
+function enable-cluster-access() {
+    cred=$(tanzu account cred list | fzf | awk '{print $1}')
+    arn=$(tanzu account cred get $cred -o json | jq '.spec.data.awsCredential.iamRole.arn' -r)
+
+    #echo "Paste the following into the file opened for editing, with the role of the credential you would like to adopt with"
+
+    kubectl create clusterrolebinding adoption-cluster-role-binding \
+        --clusterrole=cluster-admin \
+        --group=adoption
+    
+    # Set relevant string values
+    groupString="- groups:\n  - adoption\n  rolearn: $arn\n"
+    mapRoles="$(k get -n kube-system configmap/aws-auth -o json | jq --arg new $groupString '.data.mapRoles + $new' | sed 's/\\\\/\\/g' | jq -r)"
+    configMap="$(k get -n kube-system configmap/aws-auth -o json | jq --arg new $mapRoles '.data.mapRoles = $new')"
+
+    # write to file and replace strings
+    echo "Writing to configmap:"
+    echo $configMap | tee aws-auth-config-map.json
+    k replace -n kube-system configmap/aws-auth -f aws-auth-config-map.json
+}
+
+function get-eks-kubeconfig() {
+    cluster=$(tanzu ekscluster list | fzf)
+    name=$(echo $cluster | awk '{print $1}')
+    cred=$(echo $cluster | awk '{print $2}')
+    region=$(echo $cluster | awk '{print $3}')
+    agent_name=$(tanzu ekscluster get $name --region $region --credential-name $cred | grep agentName | awk '{print $2}')
+
+    tanzu mission-control cluster kubeconfig get $agent_name -p eks -m eks > ~/.kube/$agent_name
 }
