@@ -26,7 +26,8 @@ export COPYFILE_DISABLE=1 # so that tar works properly on mac
 #export GOPATH="/usr/local/Cellar/go@1.16/1.16.15"
 export GOSUMDB=off
 export GOPROXY=direct
-export GOPATH="/usr/local/Cellar/go/1.20.6"
+# export GOPATH="/usr/local/Cellar/go/1.20.6"
+export GOPATH="$HOME/go"
 export GOROOT="$(brew --prefix go)/libexec"
 export PATH="$GOROOT:$GOPATH/bin:$PATH"
 #export GOPRIVATE=http://gitlab.eng.vmware.com
@@ -34,9 +35,11 @@ export GOPRIVATE="*.vmware.com,github.com/vmware-tanzu-private*"
 
 export PATH="$HOME/.dotfiles/aws/bin:$PATH"
 export PATH="$HOME/.dotfiles/contrib/aws/bin:$PATH"
+export PATH="/Applications/GoLand.app/Contents/MacOS:$PATH"
 export PATH="/usr/local/opt/openssl/bin:$PATH"
 export PATH="/usr/local/opt/curl/bin:$PATH"
 export PATH="/usr/local/sbin:$PATH"
+export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 export MANPATH="/usr/local/man:$MANPATH"
 
 # PSQL
@@ -69,10 +72,9 @@ unset JAVA_HOME
 eval "$(printf 'nl="\n"')"
 alias eaf="code $HOME/.dotfiles/zsh/eaf.zsh"
 alias zshrc="code $HOME/.zshrc"
-alias goland="/usr/local/bin/goland"
 alias vault="aws-vault"
 alias k='kubectl'
-alias kubectl='kubectl-exec'
+# alias kubectl='kubectl-exec'
 alias c='code .'
 alias v='vi .'
 alias vim='nvim'
@@ -140,6 +142,11 @@ function ykvault() {
     aws-vault --prompt ykman $@
 }
 
+function ykgate() {
+    mfa
+    infractl aws login -c bluesky 
+}
+
 function get-aws-env() {
     printenv | grep "AWS_ENV_" | tr '=' ' ' | awk '{print $2}' | fzf
 }
@@ -157,13 +164,13 @@ function aws-exec() {
     fi
 }
 
-function kubectl-exec() {
-    if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
-        ykvault exec $AWS_ENV -- kubectl $@
-    else
-        vault exec $AWS_ENV -- kubectl $@
-    fi
-}
+# function kubectl-exec() {
+#     if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
+#         ykvault exec $AWS_ENV -- kubectl $@
+#     else
+#         vault exec $AWS_ENV -- kubectl $@
+#     fi
+# }
 
 function aws-whoami() {
     aws-exec sts get-caller-identity
@@ -673,15 +680,26 @@ function demo-init() {
 
 function refresh-bluesky() {
     # Refresh and verify VPN
-    sudo -E infractl vpn refresh -c bluesky
+    sudo -E infractl vpn disconnect -c bluesky
+    sudo -E infractl vpn connect -c bluesky
     sudo -E infractl vpn check -c bluesky
     
     # Generate Bluesky config
     infractl cell kubeconfig-get -c bluesky -R developer -f
 }
 
+function refresh-whitesand() {
+    # Refresh and verify VPN
+    sudo -E infractl vpn disconnect -c whitesand
+    sudo -E infractl vpn connect -c whitesand
+    sudo -E infractl vpn check -c whitesand
+    
+    # Generate Bluesky config
+    infractl cell kubeconfig-get -c whitesand -R poweruser -f
+}
+
 function vpn-init() {
-    ykvault exec olympus -- infractl vpn init -A
+    infractl vpn init -A
 }
 
 function refresh-access() {
@@ -703,9 +721,9 @@ function refresh-access() {
 
         echo "Creating cell kubeconfigs for $level role..."
         if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
-            ykvault exec olympus -- infractl cell kubeconfig-get -t production -R $level -f
+            infractl cell kubeconfig-get -t production -R $level -f
         else
-            vault exec olympus -- infractl cell kubeconfig-get -t production -R $level -f
+            infractl cell kubeconfig-get -t production -R $level -f
         fi
     else
         sudo -E infractl vpn disconnect -c $cell
@@ -714,9 +732,9 @@ function refresh-access() {
 
         echo "Creating cell kubeconfigs for $level role..."
         if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
-            ykvault exec olympus -- infractl cell kubeconfig-get -c $cell -R $level -f
+            infractl cell kubeconfig-get -c $cell -R $level -f
         else
-            vault exec olympus -- infractl cell kubeconfig-get -c $cell -R $level -f
+            infractl cell kubeconfig-get -c $cell -R $level -f
         fi
     fi
 }
@@ -727,23 +745,25 @@ function login-cell() {
 
     echo "Creating cell kubeconfigs for $level role..."
     if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
-        ykvault exec olympus -- infractl cell kubeconfig-get -c $cell -R $level -f
+        infractl cell kubeconfig-get -c $cell -R $level -f
     else
-        vault exec olympus -- infractl cell kubeconfig-get -c $cell -R $level -f
+        infractl cell kubeconfig-get -c $cell -R $level -f
     fi
 }
 
 function login-ecr() {
+    
+
     if [[ "$(ykman list | wc -l)" -ge "1" ]]; then
-        ykvault exec olympus -- infractl aws ecr-login
-        ykvault exec tmc-tests-05 --region us-east-1 -- aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
-        ykvault exec tmc-tests-05 --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 240639880661.dkr.ecr.us-east-1.amazonaws.com
-        ykvault exec olympus --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 702834246803.dkr.ecr.us-west-2.amazonaws.com
+        infractl aws ecr-login
+        # ykvault exec tmc-tests-05 --region us-east-1 -- aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        # ykvault exec tmc-tests-05 --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 240639880661.dkr.ecr.us-east-1.amazonaws.com
+        # ykvault exec olympus --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 702834246803.dkr.ecr.us-west-2.amazonaws.com
     else
-        vault exec olympus -- infractl aws ecr-login
-        vault exec tmc-tests-05 --region us-east-1 -- aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
-        vault exec tmc-tests-05 --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 240639880661.dkr.ecr.us-east-1.amazonaws.com
-        vault exec olympus --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 702834246803.dkr.ecr.us-west-2.amazonaws.com
+        infractl aws ecr-login
+        # vault exec tmc-tests-05 --region us-east-1 -- aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+        # vault exec tmc-tests-05 --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 240639880661.dkr.ecr.us-east-1.amazonaws.com
+        # vault exec olympus --region us-east-1 -- aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 702834246803.dkr.ecr.us-west-2.amazonaws.com
     fi
 }
 
@@ -789,6 +809,8 @@ function kconfig() {
     else
         config_name=$(ls $kube_home | grep -v "cache" | fzf --reverse --preview "bat -p -l yaml --color always $kube_home/{}")
     fi
+
+    config_name=$(echo $config_name | awk '{print $1}')
     
     if [[ "$config_name" != "" ]]; then
         export KUBECONFIG="$kube_home/$config_name"
@@ -797,7 +819,10 @@ function kconfig() {
 
 # Prompts ykman for an mfa token for the active AWS account, and prints it to the screen
 function mfa() {
-    ykman oath accounts code arn:aws:iam::${ACCOUNT_ID}:mfa/${whoami} | awk '{print $2}'
+    DEVICE_SERIAL=$(ykman list | fzf | awk '{print $NF}')
+    ACCOUNT=$(ykman --device $DEVICE_SERIAL oath accounts list | fzf)
+    export MFA_CODE=$(ykman --device $DEVICE_SERIAL oath accounts code $ACCOUNT | awk '{print $NF}')
+    echo $MFA_CODE
 }
 
 function ykrotate() {
@@ -809,7 +834,14 @@ function ykrotate() {
 # Refreshes access token and prints to screen
 function token() {
     export ACCESS_TOKEN=$(curl -X POST -H "Content-Type: application/x-www-form-urlencoded" https://console-stg.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize -d refresh_token=$CSP_TOKEN | jq -r '.access_token')
-    export Token=$ACCESS_TOKEN
+    export token=$ACCESS_TOKEN
+    echo $ACCESS_TOKEN
+}
+
+# Gets a token for tmc-ucp-cluster-onboarding
+function ucp-token() {
+    export ACCESS_TOKEN=$(curl -X POST -H "Content-Type: application/x-www-form-urlencoded" https://console-stg.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize -d refresh_token=CklzOafHr1lWn0e4gU4Rs6yBozAOl2dSlgEjtPV6y3zDEJKdbzoKgX8Vf2_FNS5A | jq -r '.access_token')
+    export token=$ACCESS_TOKEN
     echo $ACCESS_TOKEN
 }
 
@@ -1163,7 +1195,9 @@ function listen-pod() {
 }
 
 function scan-pod() {
-    if [[ "$1" != "" ]]; then
+    if [[ "$1" == "-A" ]]; then
+            namespace=$1
+    elif [[ "$1" != "" ]]; then
         namespace=$(k get namespace | fzf -e -f "$1" | awk '{print $1}')
     else
         namespace=$(k get namespace | fzf | awk '{print $1}')
@@ -1173,10 +1207,19 @@ function scan-pod() {
         return 0
     fi
 
-    echo "Scan regex: "
-    read reg
-    
-    stern -n $namespace $reg
+    if [[ "$2" != "" ]]; then
+        reg=${@:2}
+    else
+        echo "Scan regex: "
+        read reg
+    fi
+
+    if [[ "$namespace" == "-A" ]]; then
+        stern -A $reg
+    else
+        stern -n $namespace $reg
+    fi    
+
 }
 
 function k8s() {
@@ -1362,6 +1405,14 @@ function ding() {
     afplay /System/Library/Sounds/Blow.aiff
 }
 
+function stacks() {
+    if [[ $1 == "" ]]; then
+        kubectl get stacks | fzf
+    else
+        kubectl get stacks | fzf -e -f $1
+    fi
+}
+
 function connect_psql() {
     namespace=$(stacks | awk '{print $5}')
     creds=$(kubectl get secrets -n $namespace | grep postgres-creds | fzf |awk '{print $1}')
@@ -1476,4 +1527,56 @@ function get-eks-kubeconfig() {
     agent_name=$(tanzu ekscluster get $name --region $region --credential-name $cred | grep agentName | awk '{print $2}')
 
     tanzu mission-control cluster kubeconfig get $agent_name -p eks -m eks > ~/.kube/$agent_name
+}
+
+function refresh-ucp-kubeconfig() {
+    token
+    
+    echo "apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUZPakNDQkNLZ0F3SUJBZ0lTQkZld3didVByaGJUZ09JRWozZ1B1T0FDTUEwR0NTcUdTSWIzRFFFQkN3VUEKTURJeEN6QUpCZ05WQkFZVEFsVlRNUll3RkFZRFZRUUtFdzFNWlhRbmN5QkZibU55ZVhCME1Rc3dDUVlEVlFRRApFd0pTTXpBZUZ3MHlNekE1TWpVeE9UUTNNVE5hRncweU16RXlNalF4T1RRM01USmFNRUV4UHpBOUJnTlZCQU1UCk5uVmpjQzFxYUdWeWNtbHNaQzB5TG5OMFlXTnJjeTVpYkhWbGMydDVMblJ0WXkxa1pYWXVZMnh2ZFdRdWRtMTMKWVhKbExtTnZiVENDQVNJd0RRWUpLb1pJaHZjTkFRRUJCUUFEZ2dFUEFEQ0NBUW9DZ2dFQkFOa284S0NHeG04RAoyN3g0Sk5lMEduZzJNM1dLOE9sZmNWY2g0aUlOdGlmTmh0djRXRnBFM1RBN0dkc2lhdlJvdFdVaWw5Zm9hdDRlCnlEalpjY2llMko5UUttRzhLMElPUFhqSjZBOC91OFEzQVZrUzNySmZ5RVROYWcrUGc2ZVdkSHM0MlhpYk4ra0cKV25FNk8wU2t5b0crdTA3QkNlTVZpaHZPRG9YT2p5RTl3N2FXR21INEN0VitqZVcwVU1IdW9seFlmZmFBVHliYwpzZkpreFplOEhpc2lydy9oQ3JXUjNMYUQ1QmpnckdrOVNuVEdNUGZoQWZ5cmVTYWcrbjJHaHdMYlQ5SEhlSnhYClJMdWhwdk9KcVJTUm9ZZjlCaU5hekJESEozdnl2b1VlUGFXNWl1cXBVaENidXF3c0Q3LzlQZGM4NmxPdysrRGkKL1FGM1JkZkNpbThDQXdFQUFhT0NBamt3Z2dJMU1BNEdBMVVkRHdFQi93UUVBd0lGb0RBZEJnTlZIU1VFRmpBVQpCZ2dyQmdFRkJRY0RBUVlJS3dZQkJRVUhBd0l3REFZRFZSMFRBUUgvQkFJd0FEQWRCZ05WSFE0RUZnUVUzN2xjCm9pM0Z3OE5pNU9kWkowV0NYUVhSbThZd0h3WURWUjBqQkJnd0ZvQVVGQzZ6RjdkWVZzdXVVQWxBNWgrdm5Zc1UKd3NZd1ZRWUlLd1lCQlFVSEFRRUVTVEJITUNFR0NDc0dBUVVGQnpBQmhoVm9kSFJ3T2k4dmNqTXVieTVzWlc1agpjaTV2Y21jd0lnWUlLd1lCQlFVSE1BS0dGbWgwZEhBNkx5OXlNeTVwTG14bGJtTnlMbTl5Wnk4d1FRWURWUjBSCkJEb3dPSUkyZFdOd0xXcG9aWEp5YVd4a0xUSXVjM1JoWTJ0ekxtSnNkV1Z6YTNrdWRHMWpMV1JsZGk1amJHOTEKWkM1MmJYZGhjbVV1WTI5dE1CTUdBMVVkSUFRTU1Bb3dDQVlHWjRFTUFRSUJNSUlCQlFZS0t3WUJCQUhXZVFJRQpBZ1NCOWdTQjh3RHhBSGNBdHo3N0pOK2NUYnAxOGpuRnVsajBiRjM4UXM5Nm56WEVuaDBKZ1NYdHRKa0FBQUdLCnpoaVphd0FBQkFNQVNEQkdBaUVBdE1mZjQwdHFmSXAyT2FDM0NES01mTjdRaHRlTndXUUVTQmgyQ1FBUkcyb0MKSVFEMkhyU0FrbUh3V0NIbEJHZlVWQnVCUXArU0M3bDdxeGxFUzd0eXNoR0t3d0IyQUhveWpGVFl0eTIySU9vNAo0RkllNllRV2NESVRoVTA3MGl2Qk9sZWpVdXRTQUFBQmlzNFltNUlBQUFRREFFY3dSUUlnR0JORlQ1eStTUmk2CkFoOGpJbmFERFZ5U3VodENUeG9zbDhOUXhJQTYxcUFDSVFDaS9XMy9QbVFOZGJOWlBaV1UzZXp0NFVWc05vc2wKMTM5Z05GaDQ1NldxMWpBTkJna3Foa2lHOXcwQkFRc0ZBQU9DQVFFQXJNWHV5ZElSWmpuWnlDbjA4VTE1WDZsQwpweVpiWm9iMmtEVUhOQ0VmZGtBTzhuSGUrbUJaYVJ0T2wxSmZPZ1k3eXJYQXlwczhLRi9sOFdTa3ZteTY0a3lhCktvQ0NUUGJlTFhrREYyQUpsT0NjZFlYendtOWFHMHYxZmhnWnZZckN2cmlJYmI0eWwxeXc2L3pMSlBjTXZObVkKS0RpajhpYStNVGxCT2FHOFp6MWZTZnhFM3E3eHFCMmZKVC90bWNuSUlsejlEZVFJNTZHREZzU1VBbjlidDcyaworYmJhZnBoc21CbHhETnNzbGJxdzlkaW5aQ1lReDNManNtT2RCSVBrUHpYWTYwQ2VBalBoTVA2MnNwTDNZRGJKClpsdVJKdFpOcEJUMGZkTHdwTExTbTJGTzRRdGxPUUxpVC9TQnc3Y0V3NDdtUTRDaWx2d1NRTFEycDc5d253PT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQoK
+    server: https://ucp-jherrild-2.stacks.bluesky.tmc-dev.cloud.vmware.com/org/bc27608b-4809-4cac-9e04-778803963da2
+  name: org
+- cluster:
+    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUZPakNDQkNLZ0F3SUJBZ0lTQkZld3didVByaGJUZ09JRWozZ1B1T0FDTUEwR0NTcUdTSWIzRFFFQkN3VUEKTURJeEN6QUpCZ05WQkFZVEFsVlRNUll3RkFZRFZRUUtFdzFNWlhRbmN5QkZibU55ZVhCME1Rc3dDUVlEVlFRRApFd0pTTXpBZUZ3MHlNekE1TWpVeE9UUTNNVE5hRncweU16RXlNalF4T1RRM01USmFNRUV4UHpBOUJnTlZCQU1UCk5uVmpjQzFxYUdWeWNtbHNaQzB5TG5OMFlXTnJjeTVpYkhWbGMydDVMblJ0WXkxa1pYWXVZMnh2ZFdRdWRtMTMKWVhKbExtTnZiVENDQVNJd0RRWUpLb1pJaHZjTkFRRUJCUUFEZ2dFUEFEQ0NBUW9DZ2dFQkFOa284S0NHeG04RAoyN3g0Sk5lMEduZzJNM1dLOE9sZmNWY2g0aUlOdGlmTmh0djRXRnBFM1RBN0dkc2lhdlJvdFdVaWw5Zm9hdDRlCnlEalpjY2llMko5UUttRzhLMElPUFhqSjZBOC91OFEzQVZrUzNySmZ5RVROYWcrUGc2ZVdkSHM0MlhpYk4ra0cKV25FNk8wU2t5b0crdTA3QkNlTVZpaHZPRG9YT2p5RTl3N2FXR21INEN0VitqZVcwVU1IdW9seFlmZmFBVHliYwpzZkpreFplOEhpc2lydy9oQ3JXUjNMYUQ1QmpnckdrOVNuVEdNUGZoQWZ5cmVTYWcrbjJHaHdMYlQ5SEhlSnhYClJMdWhwdk9KcVJTUm9ZZjlCaU5hekJESEozdnl2b1VlUGFXNWl1cXBVaENidXF3c0Q3LzlQZGM4NmxPdysrRGkKL1FGM1JkZkNpbThDQXdFQUFhT0NBamt3Z2dJMU1BNEdBMVVkRHdFQi93UUVBd0lGb0RBZEJnTlZIU1VFRmpBVQpCZ2dyQmdFRkJRY0RBUVlJS3dZQkJRVUhBd0l3REFZRFZSMFRBUUgvQkFJd0FEQWRCZ05WSFE0RUZnUVUzN2xjCm9pM0Z3OE5pNU9kWkowV0NYUVhSbThZd0h3WURWUjBqQkJnd0ZvQVVGQzZ6RjdkWVZzdXVVQWxBNWgrdm5Zc1UKd3NZd1ZRWUlLd1lCQlFVSEFRRUVTVEJITUNFR0NDc0dBUVVGQnpBQmhoVm9kSFJ3T2k4dmNqTXVieTVzWlc1agpjaTV2Y21jd0lnWUlLd1lCQlFVSE1BS0dGbWgwZEhBNkx5OXlNeTVwTG14bGJtTnlMbTl5Wnk4d1FRWURWUjBSCkJEb3dPSUkyZFdOd0xXcG9aWEp5YVd4a0xUSXVjM1JoWTJ0ekxtSnNkV1Z6YTNrdWRHMWpMV1JsZGk1amJHOTEKWkM1MmJYZGhjbVV1WTI5dE1CTUdBMVVkSUFRTU1Bb3dDQVlHWjRFTUFRSUJNSUlCQlFZS0t3WUJCQUhXZVFJRQpBZ1NCOWdTQjh3RHhBSGNBdHo3N0pOK2NUYnAxOGpuRnVsajBiRjM4UXM5Nm56WEVuaDBKZ1NYdHRKa0FBQUdLCnpoaVphd0FBQkFNQVNEQkdBaUVBdE1mZjQwdHFmSXAyT2FDM0NES01mTjdRaHRlTndXUUVTQmgyQ1FBUkcyb0MKSVFEMkhyU0FrbUh3V0NIbEJHZlVWQnVCUXArU0M3bDdxeGxFUzd0eXNoR0t3d0IyQUhveWpGVFl0eTIySU9vNAo0RkllNllRV2NESVRoVTA3MGl2Qk9sZWpVdXRTQUFBQmlzNFltNUlBQUFRREFFY3dSUUlnR0JORlQ1eStTUmk2CkFoOGpJbmFERFZ5U3VodENUeG9zbDhOUXhJQTYxcUFDSVFDaS9XMy9QbVFOZGJOWlBaV1UzZXp0NFVWc05vc2wKMTM5Z05GaDQ1NldxMWpBTkJna3Foa2lHOXcwQkFRc0ZBQU9DQVFFQXJNWHV5ZElSWmpuWnlDbjA4VTE1WDZsQwpweVpiWm9iMmtEVUhOQ0VmZGtBTzhuSGUrbUJaYVJ0T2wxSmZPZ1k3eXJYQXlwczhLRi9sOFdTa3ZteTY0a3lhCktvQ0NUUGJlTFhrREYyQUpsT0NjZFlYendtOWFHMHYxZmhnWnZZckN2cmlJYmI0eWwxeXc2L3pMSlBjTXZObVkKS0RpajhpYStNVGxCT2FHOFp6MWZTZnhFM3E3eHFCMmZKVC90bWNuSUlsejlEZVFJNTZHREZzU1VBbjlidDcyaworYmJhZnBoc21CbHhETnNzbGJxdzlkaW5aQ1lReDNManNtT2RCSVBrUHpYWTYwQ2VBalBoTVA2MnNwTDNZRGJKClpsdVJKdFpOcEJUMGZkTHdwTExTbTJGTzRRdGxPUUxpVC9TQnc3Y0V3NDdtUTRDaWx2d1NRTFEycDc5d253PT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQoK
+    server: https://ucp-jherrild-2.stacks.bluesky.tmc-dev.cloud.vmware.com/org/bc27608b-4809-4cac-9e04-778803963da2/project/project-hr
+  name: project
+- cluster:
+    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUZPakNDQkNLZ0F3SUJBZ0lTQkZld3didVByaGJUZ09JRWozZ1B1T0FDTUEwR0NTcUdTSWIzRFFFQkN3VUEKTURJeEN6QUpCZ05WQkFZVEFsVlRNUll3RkFZRFZRUUtFdzFNWlhRbmN5QkZibU55ZVhCME1Rc3dDUVlEVlFRRApFd0pTTXpBZUZ3MHlNekE1TWpVeE9UUTNNVE5hRncweU16RXlNalF4T1RRM01USmFNRUV4UHpBOUJnTlZCQU1UCk5uVmpjQzFxYUdWeWNtbHNaQzB5TG5OMFlXTnJjeTVpYkhWbGMydDVMblJ0WXkxa1pYWXVZMnh2ZFdRdWRtMTMKWVhKbExtTnZiVENDQVNJd0RRWUpLb1pJaHZjTkFRRUJCUUFEZ2dFUEFEQ0NBUW9DZ2dFQkFOa284S0NHeG04RAoyN3g0Sk5lMEduZzJNM1dLOE9sZmNWY2g0aUlOdGlmTmh0djRXRnBFM1RBN0dkc2lhdlJvdFdVaWw5Zm9hdDRlCnlEalpjY2llMko5UUttRzhLMElPUFhqSjZBOC91OFEzQVZrUzNySmZ5RVROYWcrUGc2ZVdkSHM0MlhpYk4ra0cKV25FNk8wU2t5b0crdTA3QkNlTVZpaHZPRG9YT2p5RTl3N2FXR21INEN0VitqZVcwVU1IdW9seFlmZmFBVHliYwpzZkpreFplOEhpc2lydy9oQ3JXUjNMYUQ1QmpnckdrOVNuVEdNUGZoQWZ5cmVTYWcrbjJHaHdMYlQ5SEhlSnhYClJMdWhwdk9KcVJTUm9ZZjlCaU5hekJESEozdnl2b1VlUGFXNWl1cXBVaENidXF3c0Q3LzlQZGM4NmxPdysrRGkKL1FGM1JkZkNpbThDQXdFQUFhT0NBamt3Z2dJMU1BNEdBMVVkRHdFQi93UUVBd0lGb0RBZEJnTlZIU1VFRmpBVQpCZ2dyQmdFRkJRY0RBUVlJS3dZQkJRVUhBd0l3REFZRFZSMFRBUUgvQkFJd0FEQWRCZ05WSFE0RUZnUVUzN2xjCm9pM0Z3OE5pNU9kWkowV0NYUVhSbThZd0h3WURWUjBqQkJnd0ZvQVVGQzZ6RjdkWVZzdXVVQWxBNWgrdm5Zc1UKd3NZd1ZRWUlLd1lCQlFVSEFRRUVTVEJITUNFR0NDc0dBUVVGQnpBQmhoVm9kSFJ3T2k4dmNqTXVieTVzWlc1agpjaTV2Y21jd0lnWUlLd1lCQlFVSE1BS0dGbWgwZEhBNkx5OXlNeTVwTG14bGJtTnlMbTl5Wnk4d1FRWURWUjBSCkJEb3dPSUkyZFdOd0xXcG9aWEp5YVd4a0xUSXVjM1JoWTJ0ekxtSnNkV1Z6YTNrdWRHMWpMV1JsZGk1amJHOTEKWkM1MmJYZGhjbVV1WTI5dE1CTUdBMVVkSUFRTU1Bb3dDQVlHWjRFTUFRSUJNSUlCQlFZS0t3WUJCQUhXZVFJRQpBZ1NCOWdTQjh3RHhBSGNBdHo3N0pOK2NUYnAxOGpuRnVsajBiRjM4UXM5Nm56WEVuaDBKZ1NYdHRKa0FBQUdLCnpoaVphd0FBQkFNQVNEQkdBaUVBdE1mZjQwdHFmSXAyT2FDM0NES01mTjdRaHRlTndXUUVTQmgyQ1FBUkcyb0MKSVFEMkhyU0FrbUh3V0NIbEJHZlVWQnVCUXArU0M3bDdxeGxFUzd0eXNoR0t3d0IyQUhveWpGVFl0eTIySU9vNAo0RkllNllRV2NESVRoVTA3MGl2Qk9sZWpVdXRTQUFBQmlzNFltNUlBQUFRREFFY3dSUUlnR0JORlQ1eStTUmk2CkFoOGpJbmFERFZ5U3VodENUeG9zbDhOUXhJQTYxcUFDSVFDaS9XMy9QbVFOZGJOWlBaV1UzZXp0NFVWc05vc2wKMTM5Z05GaDQ1NldxMWpBTkJna3Foa2lHOXcwQkFRc0ZBQU9DQVFFQXJNWHV5ZElSWmpuWnlDbjA4VTE1WDZsQwpweVpiWm9iMmtEVUhOQ0VmZGtBTzhuSGUrbUJaYVJ0T2wxSmZPZ1k3eXJYQXlwczhLRi9sOFdTa3ZteTY0a3lhCktvQ0NUUGJlTFhrREYyQUpsT0NjZFlYendtOWFHMHYxZmhnWnZZckN2cmlJYmI0eWwxeXc2L3pMSlBjTXZObVkKS0RpajhpYStNVGxCT2FHOFp6MWZTZnhFM3E3eHFCMmZKVC90bWNuSUlsejlEZVFJNTZHREZzU1VBbjlidDcyaworYmJhZnBoc21CbHhETnNzbGJxdzlkaW5aQ1lReDNManNtT2RCSVBrUHpYWTYwQ2VBalBoTVA2MnNwTDNZRGJKClpsdVJKdFpOcEJUMGZkTHdwTExTbTJGTzRRdGxPUUxpVC9TQnc3Y0V3NDdtUTRDaWx2d1NRTFEycDc5d253PT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQoK
+    server: https://ucp-jherrild-2.stacks.bluesky.tmc-dev.cloud.vmware.com/org/bc27608b-4809-4cac-9e04-778803963da2/project/project-hr/space/space-a
+  name: project-space-a
+contexts:
+- context:
+    cluster: org
+    user: ucp-user
+  name: org
+- context:
+    cluster: project
+    user: ucp-user
+  name: project
+- context:
+    cluster: project-space-a
+    user: ucp-user
+  name: project-space-a
+current-context: org
+kind: Config
+preferences: {}
+users:
+- name: ucp-user
+  user:
+    token: $ACCESS_TOKEN" > $HOME/.kube/ucp-jherrild-2 
+}
+
+tar-from-url() {
+    URL="$1"
+    curl -OL "$URL"
+    tar -xvf "${URL##*/}"
+    rm "${URL##*/}"
+}
+
+# Checks out a new branch from the repo with the help of fzf 
+switch() {
+    branch=$(git branch | fzf)
+    git checkout $(echo "$branch" | tr -d '*')
 }
